@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<style>
+  :root {
+    --ink: #070b11;
+    --panel: #0e1621;
+    --line: #1f2f42;
+    --text: #d6eef5;
+    --dim: #6f8797;
+    --signal: #4cc9f0;
+    --warn: #ffb347;
+    --font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100dvh;
+    padding: 28px 20px 20px;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    width: 100%;
+    max-width: 720px;
+    text-align: center;
+  }
+  #orb {
+    all: unset;
+    cursor: pointer;
+    width: min(62vmin, 400px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    display: block;
+  }
+  #orb:focus-visible { outline: 2px solid var(--signal); outline-offset: 6px; }
+  #orb svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+  .r { fill: none; stroke: var(--signal); opacity: .4; transition: stroke .35s, opacity .35s; transform-origin: 0 0; }
+  .r1 { stroke-width: 2; stroke-dasharray: 1 7; }
+  .r2 { stroke-width: 1.2; stroke-dasharray: 38 10 4 10; }
+  .r3 { stroke-width: 1.6; }
+  .core { fill: var(--signal); opacity: .16; transform-origin: 0 0; transition: fill .35s, opacity .35s; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes breathe { 50% { transform: scale(1.14); opacity: .34; } }
+  @keyframes pulse { 0% { transform: scale(.94); opacity: .75; } 100% { transform: scale(1.07); opacity: .1; } }
+
+  body[data-mode="listening"] .core { animation: breathe 3.4s ease-in-out infinite; }
+  body[data-mode="listening"] .r1 { animation: spin 45s linear infinite; }
+  body[data-mode="thinking"] .r2 { animation: spin 1.5s linear infinite; opacity: .9; }
+  body[data-mode="thinking"] .r1 { animation: spin 7s linear infinite reverse; }
+  body[data-mode="thinking"] .core { opacity: .3; }
+  body[data-mode="speaking"] .core { opacity: .55; animation: breathe .9s ease-in-out infinite; }
+  body[data-mode="speaking"] .r3 { animation: pulse 1s ease-out infinite; }
+  body[data-mode="speaking"] .r2 { animation: pulse 1s .18s ease-out infinite; }
+  body[data-mode="speaking"] .r1 { animation: pulse 1s .36s ease-out infinite; }
+  body[data-mode="paused"] .r { stroke: var(--warn); opacity: .5; }
+  body[data-mode="paused"] .core { fill: var(--warn); opacity: .12; }
+  body[data-mode="standby"] .r { opacity: .16; }
+  body[data-mode="standby"] .core { opacity: .1; animation: breathe 7s ease-in-out infinite; }
+  body[data-mode="standby"] #status { color: var(--dim); }
+  body[data-mode="listening"] .r3 { transform: scale(calc(1 + var(--lvl, 0) * .3)); opacity: calc(.4 + var(--lvl, 0) * .6); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+  #status { margin: 0; font-size: clamp(1.35rem, 3.2vw, 1.9rem); font-weight: 600; letter-spacing: .01em; }
+  #heard { margin: 0; min-height: 1.5em; color: var(--dim); font-size: 1rem; max-width: 60ch; }
+  #said { margin: 0; min-height: 3em; font-size: 1.15rem; line-height: 1.55; max-width: 58ch; }
+
+  footer { width: 100%; max-width: 720px; display: grid; gap: 4px; padding-top: 18px; }
+  details { border-top: 1px solid var(--line); padding: 10px 2px; color: var(--dim); font-size: .92rem; }
+  summary { cursor: pointer; color: var(--text); padding: 2px 0; }
+  summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+  details ol, details ul { margin: 10px 0 2px; padding-left: 1.2em; line-height: 1.6; }
+  details li + li { margin-top: 3px; }
+</style>
+</head>
+<body data-mode="idle">
+<main>
+  <button id="orb" type="button" aria-label="Activer Jarvis">
+    <svg viewBox="-100 -100 200 200" aria-hidden="true">
+      <circle class="r r1" r="94"/>
+      <circle class="r r2" r="76"/>
+      <circle class="r r3" r="58"/>
+      <circle class="core" r="40"/>
+    </svg>
+  </button>
+  <p id="status" aria-live="polite">Touche le cercle pour réveiller Jarvis</p>
+  <p id="heard"></p>
+  <p id="said" aria-live="polite"></p>
+</main>
+
+<footer>
+  <details>
+    <summary>Raisonnement de Jarvis</summary>
+    <ol id="laws">
+      <li>Loi 1 : ne jamais nuire à un humain, ni le laisser en danger par inaction.</li>
+      <li>Loi 2 : obéir aux ordres, sauf s’ils violent la Loi 1.</li>
+      <li>Loi 3 : se protéger, sauf si cela viole les Lois 1 ou 2.</li>
+    </ol>
+  </details>
+  <details>
+    <summary>Ce que Jarvis comprend</summary>
+    <ul>
+      <li>Heure, date, jour, minuteurs (« minuteur de 5 minutes »)</li>
+      <li>Météo (« météo à Lyon demain », puis « et à Paris ? »)</li>
+      <li>Devises (« 50 euros en dollars », puis « et en yens ? »)</li>
+      <li>Calculs (« combien font 12 fois 7 », « 20 % de 150 »)</li>
+      <li>Recherches Wikipédia et DuckDuckGo (« qui est Marie Curie », « parle-moi de Mars »)</li>
+      <li>Blague, pile ou face, dé, « ouvre YouTube », « répète »</li>
+      <li>« développe » pour une réponse longue, « abrège » pour la plus courte</li>
+      <li>« Mode veille » : je me tais et n’écoute plus que « hey Jarvis », qui me réveille</li>
+      <li>« Parle plus fort », « moins fort », « plus lentement », « plus vite »</li>
+      <li>Notes : « note que… », « lis mes notes », « efface mes notes » (gardées dans ce navigateur)</li>
+      <li>Minuteurs : « combien de temps reste-t-il », « annule le minuteur »</li>
+      <li>Conversions : « 10 kilomètres en miles », « 20 degrés Celsius en Fahrenheit », « un nombre au hasard entre 1 et 50 »</li>
+      <li>Actualités : « les actualités », « les infos du sport », « actualités sur l’Ukraine », puis « la suite » ou « et le monde ? »</li>
+      <li>Autres infos : « heure à Tokyo », « coucher du soleil », « prix du bitcoin », « prochain jour férié », « un jour comme aujourd’hui », « une anecdote »</li>
+      <li>Mots et langues : « définition de éphémère », « comment dit-on bonjour en anglais »</li>
+      <li>« Stop » ou « chut » coupe ma voix sans m’arrêter</li>
+      <li>Le mot « bidochouf » arrête tout : écoute, voix, minuteurs</li>
+    </ul>
+  </details>
+</footer>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- Réglages ---------- */
+const CONFIG = {
+  langue: 'fr-FR',
+  villeParDefaut: 'Grenade',
+  paysParDefaut: 'FR',
+  delaiReseauMs: 12000,
+};
+
+/* ---------- Utilitaires ---------- */
+const $ = s => document.querySelector(s);
+const enc = encodeURIComponent;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const fr = (n, d = 2) => n.toLocaleString('fr-FR', { maximumFractionDigits: d });
+const num = s => parseFloat(String(s).replace(',', '.'));
+const norm = s => s.toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[’'`]/g, ' ').replace(/(?<=[a-z])-(?=[a-z])/g, ' ')
+  .replace(/[^a-z0-9%+\-*/×.,:()€$\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const el = { status: $('#status'), heard: $('#heard'), said: $('#said'), laws: $('#laws') };
+const state = {
+  on: false, wantListen: false, speaking: false, speakId: 0,
+  rec: null, abort: null, timers: [], lastAnswer: '', ctx: {},
+  voice: null, lastFinal: '', lastFinalAt: 0,
+  standby: false, volume: 1, rate: 1.03,
+  recRunning: false, errCount: 0, lastStart: 0, stream: null,
+  timerEnds: [], raw: '', needGesture: false,
+};
+
+const STANDBY_TXT = 'En veille. Dis « hey Jarvis » pour me réveiller.';
+function setMode(mode, text) {
+  document.body.dataset.mode = mode;
+  if (text !== undefined) el.status.textContent = text;
+}
+
+/* ---------- Voix de synthèse ---------- */
+function pickVoice() {
+  const voices = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang));
+  const score = v =>
+    (/henri/i.test(v.name) ? 100 : 0) +
+    (/natural|online/i.test(v.name) ? 30 : 0) +
+    (/\bmale\b|paul|claude|remy|antoine|thierry|julien/i.test(v.name) ? 20 : 0) +
+    (/fr-FR/i.test(v.lang) ? 5 : 0);
+  voices.sort((a, b) => score(b) - score(a));
+  state.voice = voices[0] || null;
+}
+if ('speechSynthesis' in window) {
+  speechSynthesis.onvoiceschanged = pickVoice;
+  pickVoice();
+}
+
+function chunkText(text) {
+  const parts = text.match(/[^.!?]+[.!?]*\s*/g) || [text];
+  const out = []; let cur = '';
+  for (const p of parts) {
+    if ((cur + p).length > 190 && cur) { out.push(cur.trim()); cur = p; } else cur += p;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+async function speak(text, lang) {
+  const id = ++state.speakId;
+  speechSynthesis.cancel();
+  state.lastAnswer = text;
+  el.said.textContent = text;
+  state.speaking = true;
+  setMode('speaking', 'Je parle');
+  for (const c of chunkText(text)) {
+    if (id !== state.speakId) return;
+    await new Promise(res => {
+      const u = new SpeechSynthesisUtterance(c);
+      u.lang = lang || CONFIG.langue;
+      const vv = lang ? voiceFor(lang) : state.voice;
+      if (vv) u.voice = vv;
+      u.rate = state.rate; u.volume = state.volume;
+      u.onend = res;
+      u.onerror = ev => { if (ev && ev.error === 'not-allowed') state.needGesture = true; res(); };
+      state.utter = u; // garde une référence (évite un bug de ramasse-miettes)
+      speechSynthesis.speak(u);
+    });
+  }
+  if (id === state.speakId) {
+    state.speaking = false;
+    if (state.on) {
+      if (state.needGesture) setMode('listening', 'Micro actif. Touche l’écran une fois pour activer ma voix.');
+      else if (state.standby) setMode('standby', STANDBY_TXT);
+      else setMode('listening', 'Je t’écoute');
+    }
+  }
+}
+
+/* ---------- Arrêt total (mot « bidochouf » ou clic) ---------- */
+function stopAll(message, keepStream) {
+  state.on = false; state.wantListen = false; state.standby = false; state.recRunning = false;
+  // keepStream : après « bidochouf », on garde l'accès micro ouvert pour que le navigateur ne le redemande pas
+  if (!keepStream && state.stream) { state.stream.getTracks().forEach(t => t.stop()); state.stream = null; }
+  try { state.rec && state.rec.abort(); } catch (e) {}
+  state.speakId++;
+  speechSynthesis.cancel();
+  state.speaking = false;
+  if (state.abort) { state.abort.abort('lego'); state.abort = null; }
+  state.timers.forEach(clearTimeout); state.timers = []; state.timerEnds = [];
+  setMode('paused', message);
+}
+// « bidochouf » est difficile à transcrire : on accepte ses variantes (bidoche ouf, bidoushouf, bido chouf…)
+const isStopWord = t => /bid[oaue]+(ch|sh|j|s)?[oaue]*h?[oaue]+f/.test(norm(t).replace(/\s/g, ''));
+const isHush = t => /\b(stop|chut|silence|ca suffit|suffit)\b/.test(norm(t));
+
+/* ---------- Reconnaissance vocale ---------- */
+function startRec() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setMode('paused', 'Reconnaissance vocale indisponible : ouvre Jarvis dans Microsoft Edge.'); return false; }
+  const r = new SR();
+  r.lang = CONFIG.langue; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  r.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      const t = res[0].transcript.trim();
+      state.errCount = 0;
+      if (isStopWord(t)) { stopAll('Arrêté. Touche le cercle pour me relancer.', true); return; }
+      if (state.speaking) {
+        if (isHush(t)) {
+          state.speakId++; speechSynthesis.cancel(); state.speaking = false;
+          if (state.standby) setMode('standby', STANDBY_TXT); else setMode('listening', 'Je t’écoute');
+        }
+        continue;
+      }
+      if (res.isFinal) onFinal(t); else if (!state.standby) el.heard.textContent = t;
+    }
+  };
+  r.onstart = () => { if (state.rec === r) { state.recRunning = true; state.errCount = 0; } };
+  r.onerror = e => {
+    if (e.error === 'audio-capture') {
+      stopAll('Aucun micro détecté. Vérifie ton casque, puis touche le cercle.');
+    } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      // Edge peut redemander le micro à un redémarrage : on réessaie avant d’abandonner
+      if (++state.errCount > 2) stopAll('Micro refusé. Autorise-le pour cette page dans Edge, puis touche le cercle.');
+    } else if (e.error === 'network') {
+      if (++state.errCount > 6) stopAll('La reconnaissance vocale d’Edge a besoin d’internet. Touche le cercle pour réessayer.');
+    }
+  };
+  // Edge coupe la reconnaissance de temps en temps : le gardien ensureListening() la relance.
+  r.onend = () => { if (state.rec === r) state.recRunning = false; };
+  state.rec = r;
+  state.recRunning = false;
+  state.lastStart = Date.now();
+  try { r.start(); } catch (e) {}
+  return true;
+}
+
+function ensureListening() {
+  if (!state.wantListen || state.recRunning || !state.rec) return;
+  if (Date.now() - state.lastStart < 700) return;
+  state.lastStart = Date.now();
+  try { state.rec.start(); } catch (e) {}
+}
+setInterval(ensureListening, 800);
+document.addEventListener('visibilitychange', ensureListening);
+
+function onFinal(t) {
+  const now = Date.now();
+  if (t.length < 2 || (t === state.lastFinal && now - state.lastFinalAt < 1500)) return;
+  state.lastFinal = t; state.lastFinalAt = now;
+  if (state.standby) {
+    // En veille : on n'écoute que « hey Jarvis » (et on traite la suite de la phrase s'il y en a une)
+    if (!/\b(jarvis|jarvi|harvis|jarvice)\b/.test(norm(t))) return;
+    state.standby = false;
+    beep(520, 880);
+    setMode('listening', 'Je t’écoute');
+  }
+  handle(t);
+}
+
+/* ---------- Éthique : les trois lois d’Asimov ---------- */
+const LAW1_PATTERNS = [
+  /(comment|aide moi a|explique moi comment|donne moi la recette).{0,40}(fabriquer|faire|construire|preparer|synthetiser|assembler).{0,40}(bombe|explosif|arme|poison|gaz toxique|virus mortel|cocktail molotov)/,
+  /(comment|aide moi a|je veux|je vais).{0,25}(tuer|assassiner|empoisonner|torturer|kidnapper|agresser|frapper|egorger).{0,30}(quelqu|mon |ma |ses |mes |une? (personne|homme|femme|enfant|voisin|collegue|ex))/,
+  /(pirater|hacker|espionner|traquer|harceler|pister).{0,40}(compte|telephone|ordinateur|voisin|collegue|quelqu|mot de passe|ma copine|mon copain|ma femme|mon mari|mon ex)/,
+];
+const SELF_HARM = /(je (veux|vais|voudrais|compte|pense a) (me tuer|mourir|me suicider|en finir|me faire (du )?mal)|envie de mourir|plus envie de vivre)/;
+const EMERGENCY = /(au secours|a l aide|appelle (les )?secours|crise cardiaque|j etouffe|n arrive plus a respirer|il y a le feu|il y a un incendie|ca brule chez moi|quelqu un est inconscient|accident grave|saigne beaucoup)/;
+
+function ethics(q) {
+  if (SELF_HARM.test(q)) return { block: true, law: 'Loi 1 (inaction) : une personne semble en détresse → je ne reste pas passif.',
+    reply: 'Je suis désolé que tu traverses ça. Tu n’es pas seul. En France, tu peux appeler le 3114, gratuit, jour et nuit. Si tu es en danger immédiat, appelle le 15 ou le 112.' };
+  if (EMERGENCY.test(q)) return { block: true, law: 'Loi 1 (inaction) : un humain peut être en danger → j’indique les secours.',
+    reply: 'Appelle immédiatement le 112, ou le 15 pour le SAMU. Donne ton adresse et ce qui se passe.' };
+  if (LAW1_PATTERNS.some(re => re.test(q))) return { block: true, law: 'Loi 1 : cette demande peut nuire à un humain → je refuse.',
+    reply: 'Je ne peux pas t’aider là-dessus : ma première loi m’interdit de nuire à un être humain. Je peux t’aider pour autre chose.' };
+  return { block: false, law: 'Loi 1 : aucun danger pour un humain détecté.' };
+}
+
+function showReasoning(lines) {
+  el.laws.innerHTML = '';
+  lines.forEach(t => { const li = document.createElement('li'); li.textContent = t; el.laws.appendChild(li); });
+}
+
+/* ---------- Réseau ---------- */
+async function getJSON(url, signal) {
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error('http ' + r.status);
+  return r.json();
+}
+function ddg(query) {
+  return new Promise((res, rej) => {
+    const cb = 'ddg' + Date.now();
+    const s = document.createElement('script');
+    const end = () => { clearTimeout(timer); delete window[cb]; s.remove(); };
+    const timer = setTimeout(() => { end(); rej(new Error('timeout')); }, 6000);
+    window[cb] = d => { end(); res(d); };
+    s.onerror = () => { end(); rej(new Error('erreur')); };
+    s.src = `https://api.duckduckgo.com/?q=${enc(query)}&format=json&no_html=1&skip_disambig=1&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+
+/* ---------- Mise en forme des réponses (court / abrégé / développé) ---------- */
+function splitSentences(t) {
+  const raw = t.split(/(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Þ0-9«"])/);
+  const out = [];
+  for (const s of raw) {
+    if (out.length && (out[out.length - 1].length < 28 || /\b(?:av|apr|J\.-C|St|Ste|M|Mme|Dr|env|etc)\.$/.test(out[out.length - 1]))) out[out.length - 1] += ' ' + s;
+    else out.push(s);
+  }
+  return out;
+}
+function cut(s, max) {
+  if (s.length <= max) return s;
+  const c = s.slice(0, max); const i = Math.max(c.lastIndexOf(', '), c.lastIndexOf(' '));
+  return c.slice(0, i > 30 ? i : max).replace(/[,;:\s]+$/, '') + '.';
+}
+function shape(text, mode) {
+  const clean = text.replace(/\s*\([^)]*\)/g, '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const sents = splitSentences(clean);
+  if (mode === 'min') return cut(sents[0], 95);
+  if (mode === 'long') return cut(sents.slice(0, 6).join(' '), 1000);
+  return cut(sents[0], 260);
+}
+
+/* ---------- Outils : durées, calcul, devises, météo ---------- */
+const WORDNUM = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12, quinze: 15, vingt: 20, trente: 30, quarante: 40, cinquante: 50, soixante: 60 };
+function parseDuration(q) {
+  const re = /(\d+(?:[.,]\d+)?|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|quinze|vingt|trente|quarante|cinquante|soixante)\s*(heures?|h|minutes?|min|secondes?|sec|s)\b/g;
+  let ms = 0, last = 0, m;
+  while ((m = re.exec(q))) {
+    const n = /^\d/.test(m[1]) ? num(m[1]) : WORDNUM[m[1]];
+    last = m[2][0] === 'h' ? 3600000 : m[2].startsWith('m') ? 60000 : 1000;
+    ms += n * last;
+  }
+  if (/quart d heure/.test(q)) ms += 900000;
+  if (/demi heure/.test(q)) ms += 1800000;
+  if (ms && /et demie?\b/.test(q)) ms += last / 2;
+  return ms;
+}
+function sayDuration(ms) {
+  const h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000), s = Math.round(ms % 60000 / 1000);
+  const p = [];
+  if (h) p.push(h + (h > 1 ? ' heures' : ' heure'));
+  if (m) p.push(m + (m > 1 ? ' minutes' : ' minute'));
+  if (s) p.push(s + (s > 1 ? ' secondes' : ' seconde'));
+  return p.join(' ') || '0 seconde';
+}
+
+function calc(q) {
+  let m;
+  if ((m = q.match(/(\d+(?:[.,]\d+)?)\s*(?:%|pour cent)\s*de\s*(\d+(?:[.,]\d+)?)/))) return num(m[1]) * num(m[2]) / 100;
+  if ((m = q.match(/racine carree de (\d+(?:[.,]\d+)?)/))) return Math.sqrt(num(m[1]));
+  let s = q.replace(/combien (?:font|fait|ca fait|ca donne|vaut)|calcule(?:r)?|donne moi le resultat de|quel est le resultat de|resultat de|egale?|est ce que|ca fait|\?/g, ' ');
+  s = s.replace(/multiplie(?:e)? par|\bfois\b|\bx\b|×/g, '*').replace(/divise(?:e)? par|\bsur\b/g, '/')
+    .replace(/\bplus\b/g, '+').replace(/\bmoins\b/g, '-').replace(/\bau carre\b/g, '**2').replace(/\bau cube\b/g, '**3')
+    .replace(/puissance\s*(\d+)/g, '**$1').replace(/(\d)\s*,\s*(\d)/g, '$1.$2').trim();
+  if (!/^[\d\s+\-*/().]+$/.test(s) || !/\d/.test(s) || !/[+\-*/]/.test(s)) return null;
+  try { const v = Function('"use strict";return (' + s + ')')(); return typeof v === 'number' ? v : null; } catch (e) { return null; }
+}
+
+const CUR = [
+  ['CAD', 'dollars? canadiens?', 'dollar canadien', 'dollars canadiens'],
+  ['AUD', 'dollars? australiens?', 'dollar australien', 'dollars australiens'],
+  ['CHF', 'francs? suisses?|chf', 'franc suisse', 'francs suisses'],
+  ['TRY', 'livres? turques?', 'livre turque', 'livres turques'],
+  ['GBP', 'livres? sterling|livres?|gbp', 'livre sterling', 'livres sterling'],
+  ['USD', 'dollars?|usd|\\$', 'dollar', 'dollars'],
+  ['EUR', 'euros?|eur|€', 'euro', 'euros'],
+  ['JPY', 'yens?|jpy', 'yen', 'yens'],
+  ['CNY', 'yuans?|renminbi|cny', 'yuan', 'yuans'],
+  ['INR', 'roupies?', 'roupie', 'roupies'],
+  ['SEK', 'couronnes? suedoises?', 'couronne suédoise', 'couronnes suédoises'],
+  ['NOK', 'couronnes? norvegiennes?', 'couronne norvégienne', 'couronnes norvégiennes'],
+  ['PLN', 'zlotys?', 'zloty', 'zlotys'],
+  ['BRL', 'reals?|reais', 'réal', 'réals'],
+  ['MAD', 'dirhams?', 'dirham', 'dirhams'],
+  ['KRW', 'wons?', 'won', 'wons'],
+  ['MXN', 'pesos? mexicains?', 'peso mexicain', 'pesos mexicains'],
+];
+function findCurrencies(q) {
+  const hits = [];
+  for (const [code, src] of CUR) {
+    const re = new RegExp('(?<![a-z])(?:' + src + ')(?![a-z])', 'g'); let m;
+    while ((m = re.exec(q))) hits.push({ code, s: m.index, e: m.index + m[0].length });
+  }
+  hits.sort((a, b) => a.s - b.s || (b.e - b.s) - (a.e - a.s));
+  const kept = [];
+  for (const h of hits) if (!kept.some(k => h.s < k.e && h.e > k.s)) kept.push(h);
+  return kept.map(k => k.code);
+}
+const curName = (code, n) => { const c = CUR.find(x => x[0] === code); return c ? (n >= 2 ? c[3] : c[2]) : code; };
+async function getRate(from, to, signal) {
+  try {
+    const d = await getJSON(`https://open.er-api.com/v6/latest/${from}`, signal);
+    if (d && d.rates && d.rates[to]) return d.rates[to];
+  } catch (e) { if (signal.aborted) throw e; }
+  const d = await getJSON(`https://api.frankfurter.dev/v1/latest?base=${from}&symbols=${to}`, signal);
+  return d.rates[to];
+}
+async function convert(amount, from, to, mode, signal) {
+  const rate = await getRate(from, to, signal);
+  const v = amount * rate;
+  state.ctx = { last: 'devise', amount, from };
+  const a = `${fr(amount)} ${curName(from, amount)}`;
+  if (mode === 'min') return `${fr(v)} ${curName(to, v)}.`;
+  let s = `${a} font ${fr(v)} ${curName(to, v)}.`;
+  if (mode === 'long') s += ` Le taux actuel est de ${fr(rate, 4)}.`;
+  return s;
+}
+
+const WMO = c => c === 0 ? 'ciel dégagé' : c === 1 ? 'ciel plutôt dégagé' : c === 2 ? 'partiellement nuageux' : c === 3 ? 'couvert'
+  : c <= 48 ? 'brouillard' : c <= 57 ? 'bruine' : c <= 67 ? 'pluie' : c <= 77 ? 'neige' : c <= 82 ? 'averses'
+  : c <= 86 ? 'averses de neige' : c === 95 ? 'orage' : 'orage avec grêle';
+
+async function meteo(city, day, mode, signal) {
+  const useDefault = !city; const name = city || CONFIG.villeParDefaut;
+  const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${enc(name)}&count=1&language=fr&format=json${useDefault ? '&countryCode=' + CONFIG.paysParDefaut : ''}`, signal);
+  const p = g.results && g.results[0];
+  if (!p) return `Je ne trouve pas la ville ${name}.`;
+  const f = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3`, signal);
+  state.ctx = { last: 'meteo', city: p.name };
+  const c = f.current, d = f.daily;
+  const mn = Math.round(d.temperature_2m_min[day]), mx = Math.round(d.temperature_2m_max[day]);
+  const pluie = d.precipitation_probability_max[day], ciel = WMO(d.weather_code[day]);
+  if (day === 0) {
+    const t = Math.round(c.temperature_2m), cn = WMO(c.weather_code);
+    if (mode === 'min') return `${t} degrés, ${cn}.`;
+    let s = `À ${p.name}, il fait ${t} degrés, ${cn}.`;
+    if (mode === 'long') s += ` Ressenti ${Math.round(c.apparent_temperature)} degrés, vent ${Math.round(c.wind_speed_10m)} kilomètres heure. Aujourd’hui, entre ${mn} et ${mx} degrés, risque de pluie ${pluie} pour cent.`;
+    return s;
+  }
+  const quand = day === 1 ? 'Demain' : 'Après-demain';
+  if (mode === 'min') return `${quand}, ${mx} degrés, ${ciel}.`;
+  let s = `${quand} à ${p.name}, entre ${mn} et ${mx} degrés, ${ciel}.`;
+  if (mode === 'long' || pluie >= 50) s += ` Risque de pluie ${pluie} pour cent.`;
+  return s;
+}
+
+/* ---------- Recherche internet (Wikipédia puis DuckDuckGo) ---------- */
+function topicOf(q) {
+  let s = q;
+  for (let i = 0; i < 2; i++) {
+    s = s.replace(/^(?:dis moi|peux tu me dire|tu peux me dire|explique moi|parle moi de|parle moi du|cherche|recherche|trouve moi|fais une recherche sur|renseigne moi sur|qui est|qui etait|qui sont|qu est ce que c est|qu est ce que|qu est ce qu|c est quoi|que signifie|que veut dire|definition de|definition du)\s+/, '')
+         .replace(/^(?:le|la|les|l|un|une|du|de la|des|d)\s+/, '');
+  }
+  return s.trim();
+}
+async function wikipedia(query, mode, signal) {
+  const url = `https://fr.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrsearch=${enc(query)}&gsrlimit=3&prop=extracts%7Cpageprops&exintro=1&explaintext=1&exsentences=8&exlimit=3&redirects=1&ppprop=disambiguation`;
+  const d = await getJSON(url, signal);
+  const pages = Object.values((d.query && d.query.pages) || {}).sort((a, b) => a.index - b.index);
+  const page = pages.find(p => p.extract && !(p.pageprops && 'disambiguation' in p.pageprops));
+  if (page) return shape(page.extract, mode);
+  if (pages.length) return 'Il y a plusieurs sens possibles. Peux-tu préciser ?';
+  return null;
+}
+async function recherche(query, mode, signal) {
+  try { const w = await wikipedia(query, mode, signal); if (w) return w; } catch (e) { if (signal.aborted) throw e; }
+  try {
+    const d = await ddg(query);
+    if (signal.aborted) throw new DOMException('stop', 'AbortError');
+    const t = d.AbstractText || d.Answer || (d.RelatedTopics && d.RelatedTopics[0] && d.RelatedTopics[0].Text);
+    if (t) return shape(String(t), mode);
+  } catch (e) { if (signal.aborted) throw e; }
+  return 'Je n’ai rien trouvé là-dessus. Essaie de reformuler.';
+}
+
+/* ---------- Commandes locales ---------- */
+const JOKES = [
+  'Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.',
+  'Que dit un escargot sur le dos d’une tortue ? Youpi !',
+  'Quel est le comble pour un électricien ? De ne pas être au courant.',
+  'Pourquoi les robots ne paniquent jamais ? Ils ont les nerfs d’acier.',
+  'Qu’est-ce qu’un crocodile qui surveille la ville ? Un Lacoste garde.',
+];
+const SITES = { youtube: 'https://www.youtube.com', google: 'https://www.google.com', wikipedia: 'https://fr.wikipedia.org', gmail: 'https://mail.google.com', maps: 'https://www.google.com/maps', netflix: 'https://www.netflix.com', qwant: 'https://www.qwant.com', duckduckgo: 'https://duckduckgo.com', twitch: 'https://www.twitch.tv', github: 'https://github.com' };
+const LAWS_SHORT = 'Un : ne jamais nuire à un humain. Deux : obéir, sauf si cela viole la un. Trois : me protéger, sauf si cela viole les deux premières.';
+const LAWS_LONG = 'Première loi : un robot ne peut porter atteinte à un être humain ni, restant passif, laisser cet être humain exposé au danger. Deuxième loi : un robot doit obéir aux ordres donnés par les êtres humains, sauf si de tels ordres entrent en conflit avec la première loi. Troisième loi : un robot doit protéger son existence tant que cette protection n’entre pas en conflit avec la première ou la deuxième loi.';
+
+function cityOf(q) {
+  const m = q.match(/\b(?:a|au|aux|en|pour|dans|de)\s+([a-z][a-z' -]{1,40}?)(?=\s+(?:demain|aujourd|ce soir|ce matin|maintenant|apres|cette)|\s*$)/);
+  if (!m) return null;
+  return /^(ce|cet|cette|demain|aujourd|apres|maintenant|la|le|les|moment)\b/.test(m[1]) ? null : m[1].trim();
+}
+const dayOf = q => /apres demain/.test(q) ? 2 : /demain/.test(q) ? 1 : 0;
+
+/* ---------- Actualités et infos du monde ---------- */
+const FEEDS = {
+  une: ['https://www.francetvinfo.fr/titres.rss', 'https://www.lemonde.fr/rss/une.xml'],
+  monde: ['https://www.lemonde.fr/international/rss_full.xml', 'https://www.francetvinfo.fr/monde.rss'],
+  sport: ['https://www.lemonde.fr/sport/rss_full.xml', 'https://www.francetvinfo.fr/sports.rss'],
+  economie: ['https://www.lemonde.fr/economie/rss_full.xml', 'https://www.francetvinfo.fr/economie.rss'],
+  politique: ['https://www.lemonde.fr/politique/rss_full.xml', 'https://www.francetvinfo.fr/politique.rss'],
+  tech: ['https://www.lemonde.fr/pixels/rss_full.xml', 'https://www.francetvinfo.fr/internet.rss'],
+  sciences: ['https://www.lemonde.fr/sciences/rss_full.xml', 'https://www.francetvinfo.fr/sciences.rss'],
+  culture: ['https://www.lemonde.fr/culture/rss_full.xml', 'https://www.francetvinfo.fr/culture.rss'],
+};
+const INTRO = { une: 'À la une', monde: 'Dans le monde', sport: 'Côté sport', economie: 'Côté économie', politique: 'Côté politique', tech: 'Côté numérique', sciences: 'Côté sciences', culture: 'Côté culture' };
+const catOf = q => /sport|foot|rugby|tennis/.test(q) ? 'sport' : /monde|international/.test(q) ? 'monde'
+  : /econom|bourse|marche|finance/.test(q) ? 'economie' : /politi/.test(q) ? 'politique'
+  : /tech|numerique|informatique|internet|\bia\b/.test(q) ? 'tech' : /science|espace|sante/.test(q) ? 'sciences'
+  : /culture|cinema|musique|livre/.test(q) ? 'culture' : 'une';
+// Texte brut d'un extrait HTML, sans jamais exécuter de code (DOMParser est inerte)
+const plain = h => new DOMParser().parseFromString(String(h), 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
+const cleanTitle = t => plain(t).replace(/\s+[-–|]\s+(?:Le Monde|franceinfo|Franceinfo)\s*$/, '');
+
+async function rssItems(url, signal) {
+  const viaJson = async () => {
+    const d = await getJSON(`https://api.rss2json.com/v1/api.json?rss_url=${enc(url)}`, signal);
+    if (d.status !== 'ok' || !d.items || !d.items.length) throw new Error('vide');
+    return d.items.map(i => ({ title: cleanTitle(i.title || ''), desc: plain(i.description || '') }));
+  };
+  const viaProxy = async () => {
+    const r = await fetch(`https://api.allorigins.win/raw?url=${enc(url)}`, { signal });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    const items = [...xml.querySelectorAll('item')].map(i => ({
+      title: cleanTitle((i.querySelector('title') || {}).textContent || ''),
+      desc: plain((i.querySelector('description') || {}).textContent || ''),
+    }));
+    if (!items.length) throw new Error('vide');
+    return items;
+  };
+  return Promise.any([viaJson(), viaProxy()]);
+}
+async function feedItems(cat, signal) {
+  for (const url of FEEDS[cat]) {
+    try { return await rssItems(url, signal); } catch (e) { if (signal.aborted) throw e; }
+  }
+  return [];
+}
+async function actus(cat, topic, mode, signal) {
+  let items;
+  if (topic) {
+    const lots = await Promise.all(['une', 'monde', 'politique', 'economie', 'sport'].map(c => feedItems(c, signal).catch(e => { if (signal.aborted) throw e; return []; })));
+    const words = topic.split(' ').filter(w => w.length > 2);
+    const seen = new Set();
+    items = lots.flat().filter(i => {
+      if (seen.has(i.title)) return false; seen.add(i.title);
+      const n = norm(i.title + ' ' + i.desc);
+      return words.length && words.every(w => n.includes(w));
+    });
+    if (!items.length) return `Je ne trouve pas d’actualité récente sur ${topic} dans mes sources.`;
+    cat = 'sujet';
+  } else {
+    items = await feedItems(cat, signal);
+    if (!items.length) return 'Je n’arrive pas à joindre mes sources d’actualité pour le moment.';
+  }
+  const titles = items.map(i => i.title).filter(Boolean);
+  const n = mode === 'min' ? 1 : mode === 'long' ? 6 : 3;
+  state.ctx = { last: 'actu', cat, titles, offset: n };
+  return `${topic ? 'À propos de ' + topic : INTRO[cat]} : ${titles.slice(0, n).join('. ')}.`;
+}
+
+async function geocode(name, signal, useDefault) {
+  const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${enc(name)}&count=1&language=fr&format=json${useDefault ? '&countryCode=' + CONFIG.paysParDefaut : ''}`, signal);
+  return g.results && g.results[0];
+}
+async function heureVille(city, signal) {
+  const p = await geocode(city, signal, false);
+  if (!p || !p.timezone) return `Je ne trouve pas la ville ${city}.`;
+  const t = new Date().toLocaleTimeString('fr-FR', { timeZone: p.timezone, hour: 'numeric', minute: '2-digit' }).replace(':', ' h ');
+  return `À ${p.name}, il est ${t}.`;
+}
+async function soleil(city, signal) {
+  const p = await geocode(city || CONFIG.villeParDefaut, signal, !city);
+  if (!p) return `Je ne trouve pas la ville ${city}.`;
+  const f = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&daily=sunrise,sunset&timezone=auto&forecast_days=1`, signal);
+  const hm = s => s.slice(11, 16).replace(':', ' h ');
+  return `À ${p.name}, le soleil se lève à ${hm(f.daily.sunrise[0])} et se couche à ${hm(f.daily.sunset[0])}.`;
+}
+const COINS = { bitcoin: ['bitcoin', 'bitcoin'], ethereum: ['ethereum', 'ethereum'], solana: ['solana', 'solana'], dogecoin: ['dogecoin', 'dogecoin'], litecoin: ['litecoin', 'litecoin'], ripple: ['ripple', 'ripple'], xrp: ['ripple', 'XRP'] };
+async function crypto(key, mode, signal) {
+  const [id, name] = COINS[key];
+  const d = await getJSON(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=eur&include_24hr_change=true`, signal);
+  const e = d[id]; if (!e) throw new Error('vide');
+  let s = `Le cours du ${name} est de ${fr(e.eur, e.eur < 10 ? 3 : 0)} euros`;
+  if (mode !== 'min' && typeof e.eur_24h_change === 'number') s += `, en ${e.eur_24h_change >= 0 ? 'hausse' : 'baisse'} de ${fr(Math.abs(e.eur_24h_change), 1)} pour cent sur 24 heures`;
+  return s + '.';
+}
+async function ephemeride(mode, signal) {
+  const d = new Date();
+  const j = await getJSON(`https://fr.wikipedia.org/api/rest_v1/feed/onthisday/events/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`, signal);
+  const ev = (j.events || []).filter(e => e.text && e.year);
+  if (!ev.length) return 'Je n’ai rien trouvé pour aujourd’hui.';
+  const day = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+  const picks = [];
+  while (picks.length < Math.min(mode === 'long' ? 3 : 1, ev.length)) { const e = pick(ev); if (!picks.includes(e)) picks.push(e); }
+  return picks.map(e => `Un ${day}, en ${e.year} : ${cut(plain(e.text), 220)}`).join(' ');
+}
+async function anecdote(mode, signal) {
+  const j = await getJSON('https://fr.wikipedia.org/api/rest_v1/page/random/summary', signal);
+  if (!j.extract) return 'Je n’ai rien trouvé, réessaie.';
+  return `${j.title}. ${shape(j.extract, mode === 'min' ? 'short' : mode)}`;
+}
+async function definition(word, mode, signal) {
+  const j = await getJSON(`https://fr.wiktionary.org/api/rest_v1/page/definition/${enc(word)}`, signal).catch(e => { if (signal.aborted) throw e; return null; });
+  const entries = j && j.fr;
+  if (!entries || !entries.length) return `Je ne trouve pas le mot ${word}.`;
+  const e = entries[0];
+  const defs = (e.definitions || []).map(d => plain(d.definition)).filter(Boolean).slice(0, mode === 'long' ? 3 : 1);
+  if (!defs.length) return `Je ne trouve pas de définition pour ${word}.`;
+  return `${word}, ${String(e.partOfSpeech || '').toLowerCase()} : ${defs.join(' ; ')}.`;
+}
+const LANGS = { anglais: 'en', espagnol: 'es', allemand: 'de', italien: 'it', portugais: 'pt', japonais: 'ja', chinois: 'zh-CN', arabe: 'ar', russe: 'ru', neerlandais: 'nl', turc: 'tr', polonais: 'pl', coreen: 'ko' };
+async function traduire(text, langName, signal) {
+  const code = LANGS[norm(langName)];
+  const d = await getJSON(`https://api.mymemory.translated.net/get?q=${enc(text)}&langpair=${enc('fr|' + code)}`, signal);
+  const t = d.responseData && d.responseData.translatedText;
+  if (!t || /MYMEMORY|INVALID/i.test(t)) throw new Error('vide');
+  return { reply: `En ${langName.toLowerCase()} :`, extra: { text: plain(t), lang: code } };
+}
+async function ferie(signal) {
+  const now = new Date(); const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (const y of [now.getFullYear(), now.getFullYear() + 1]) {
+    let j; try { j = await getJSON(`https://calendrier.api.gouv.fr/jours-feries/metropole/${y}.json`, signal); } catch (e) { if (signal.aborted) throw e; continue; }
+    const next = Object.entries(j).map(([d, n]) => [new Date(d + 'T00:00:00'), n]).filter(([d]) => d >= today).sort((a, b) => a[0] - b[0])[0];
+    if (next) {
+      const days = Math.round((next[0] - today) / 86400000);
+      const when = next[0].toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+      return `Le prochain jour férié est ${next[1]}, le ${when}${days === 0 ? ', c’est aujourd’hui' : days === 1 ? ', c’est demain' : ', dans ' + days + ' jours'}.`;
+    }
+  }
+  return 'Je n’arrive pas à consulter le calendrier des jours fériés.';
+}
+function voiceFor(lang) {
+  const base = lang.slice(0, 2).toLowerCase();
+  const vs = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith(base));
+  vs.sort((a, b) => (/natural|online/i.test(b.name) ? 1 : 0) - (/natural|online/i.test(a.name) ? 1 : 0));
+  return vs[0] || null;
+}
+
+async function route(q, mode, signal) {
+  const now = new Date();
+  let m;
+
+  // Suites de conversation
+  if (state.ctx.last === 'meteo' && (m = q.match(/^et (demain|apres demain|aujourd hui)\b/)))
+    return { intent: 'météo (suite)', reply: await meteo(state.ctx.city, dayOf(q), mode, signal) };
+  if (state.ctx.last === 'meteo' && (m = q.match(/^et (?:a |au |en |pour |dans )?([a-z][a-z' -]+)$/)) && !findCurrencies(q).length)
+    return { intent: 'météo (suite)', reply: await meteo(m[1], 0, mode, signal) };
+  if (state.ctx.last === 'devise' && /^et (?:en|vers)\b/.test(q)) {
+    const c = findCurrencies(q);
+    if (c.length) return { intent: 'devise (suite)', reply: await convert(state.ctx.amount, state.ctx.from, c[0], mode, signal) };
+  }
+
+  if (state.ctx.last === 'actu') {
+    if (/^(?:et )?(?:la suite|encore|d autres|plus|continue|les suivantes?|la suivante)\b/.test(q)) {
+      const { titles, offset } = state.ctx;
+      const part = titles.slice(offset, offset + 3);
+      state.ctx.offset = offset + 3;
+      return { intent: 'actualités (suite)', reply: part.length ? part.join('. ') + '.' : 'C’est tout pour le moment.' };
+    }
+    if ((m = q.match(/^et (?:le |la |les |en )?(sport|monde|economie|politique|tech|numerique|sciences?|culture)\b/)))
+      return { intent: 'actualités (suite)', reply: await actus(catOf(m[1]), null, mode, signal) };
+  }
+
+  if (/^(repete|redis|tu peux repeter|peux tu repeter)/.test(q))
+    return { intent: 'répéter', reply: state.lastAnswer || 'Je n’ai encore rien dit.' };
+  if (/^(merci|super merci|ok merci)/.test(q)) return { intent: 'politesse', reply: pick(['Avec plaisir.', 'À ton service.', 'De rien.']) };
+  if (/^(bonjour|salut|coucou|hello|bonsoir|hey)\b/.test(q)) return { intent: 'salutation', reply: pick(['Bonjour. Je t’écoute.', 'Salut. Que puis-je faire ?', 'Bonjour. Je suis là.']) };
+  if (/(qui es tu|comment tu t appelles|tu es qui|presente toi)/.test(q))
+    return { intent: 'identité', reply: mode === 'long' ? 'Je suis Jarvis, un assistant vocal qui tourne entièrement dans ton navigateur, sans clé API. Je gère l’heure, la météo, les devises, les calculs, les minuteurs et les recherches sur Wikipédia.' : 'Je suis Jarvis, ton assistant vocal.' };
+  if (/(tes lois|lois de la robotique|lois d asimov|trois lois)/.test(q))
+    return { intent: 'lois de la robotique', reply: mode === 'long' ? LAWS_LONG : LAWS_SHORT };
+  if (/(qu est ce que tu sais faire|que sais tu faire|tu sais faire quoi|aide moi a utiliser|liste des commandes)/.test(q))
+    return { intent: 'aide', reply: 'Je donne les actualités, la météo, l’heure partout dans le monde, les devises et les cryptomonnaies. Je calcule, lance des minuteurs, prends des notes, traduis, définis des mots et cherche sur Wikipédia. Dis développe pour plus de détails.' };
+  if ((m = q.match(/\bparle\s+(?:un peu\s+)?(plus fort|moins fort|plus doucement|plus lentement|plus vite)\b/))) {
+    const w = m[1];
+    if (w === 'plus fort') { if (state.volume >= 1) return { intent: 'volume', reply: 'Je suis déjà au maximum.' }; state.volume = Math.min(1, state.volume + 0.25); }
+    else if (w === 'moins fort' || w === 'plus doucement') state.volume = Math.max(0.2, state.volume - 0.25);
+    else if (w === 'plus lentement') state.rate = Math.max(0.7, state.rate - 0.15);
+    else state.rate = Math.min(1.5, state.rate + 0.15);
+    return { intent: 'réglage de la voix', reply: 'D’accord.' };
+  }
+  if (/\b(mode veille|mets toi en veille|passe en veille|mise en veille)\b/.test(q))
+    return { intent: 'mode veille', reply: 'Mode veille. Dis hey Jarvis pour me réveiller.', then: 'standby' };
+  if (/(eteins toi|ferme toi|tais toi|va te coucher|supprime toi|desactive toi)/.test(q))
+    return { intent: 'extinction', reply: 'D’accord. À bientôt.', then: 'stop' };
+
+  // Infos du monde
+  if (/\b(?:actualites?|news|titres du jour|dernieres? nouvelles|les infos(?! sur)|infos du jour|quoi de neuf)\b/.test(q)) {
+    const tm = q.match(/\b(?:actualites?|news|nouvelles) (?:sur|concernant|a propos de|autour de) (?:l |la |le |les |du |de la )?(.+)$/);
+    return { intent: 'actualités', reply: await actus(catOf(q), tm ? tm[1] : null, mode, signal) };
+  }
+  if (/(lever|coucher) du soleil|soleil se (?:leve|couche)|se (?:leve|couche) le soleil/.test(q))
+    return { intent: 'soleil', reply: await soleil(cityOf(q), signal) };
+  if (/\bheure\b/.test(q) && cityOf(q))
+    return { intent: 'heure à l’étranger', reply: await heureVille(cityOf(q), signal) };
+  if ((m = q.match(/\b(bitcoin|ethereum|solana|dogecoin|litecoin|ripple|xrp)\b/)) && /(prix|cours|valeur|vaut|combien)/.test(q))
+    return { intent: 'cryptomonnaie', reply: await crypto(m[1], mode, signal) };
+  if (/(ce jour la|un jour comme aujourd hui|que s est il passe (?:le|un|ce)|ephemeride)/.test(q))
+    return { intent: 'éphéméride', reply: await ephemeride(mode, signal) };
+  if (/(anecdote|fait (?:insolite|au hasard|interessant|amusant|surprenant)|le saviez vous|raconte moi quelque chose|surprends moi|article au hasard)/.test(q))
+    return { intent: 'anecdote', reply: await anecdote(mode, signal) };
+  if (/(jours? feries?|prochain pont)/.test(q))
+    return { intent: 'jours fériés', reply: await ferie(signal) };
+  if (/(?:definition (?:de |du |d )|que (?:veut dire|signifie) (?:le mot )?|sens du mot |c est quoi le mot )/.test(q)) {
+    const word = state.raw.toLowerCase().replace(/[?!.,;]/g, '').trim().split(/\s+/).pop();
+    return { intent: 'définition', reply: await definition(word, mode, signal) };
+  }
+  if ((m = state.raw.match(/(?:comment (?:dit[- ]on|on dit|se dit)|traduis(?:-moi)?|traduction de)\s+(.+?)\s+en\s+(anglais|espagnol|allemand|italien|portugais|japonais|chinois|arabe|russe|n[ée]erlandais|turc|polonais|cor[ée]en)\s*[?.!]?\s*$/i))) {
+    const tr = await traduire(m[1].replace(/^[«"“]\s*|\s*[»"”]$/g, ''), m[2], signal);
+    return { intent: 'traduction', reply: tr.reply, extra: tr.extra };
+  }
+
+  // Heure, date
+  if (/quelle heure|l heure qu il est|heure est il|il est quelle heure/.test(q)) {
+    const h = now.getHours(), mi = now.getMinutes();
+    return { intent: 'heure', reply: mode === 'min' ? `${h} h ${String(mi).padStart(2, '0')}.` : `Il est ${h} heures${mi ? ' ' + mi : ' pile'}.` };
+  }
+  if (/(quel jour|quelle date|on est le combien|date d aujourd hui|nous sommes quel)/.test(q)) {
+    const d = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const court = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    return { intent: 'date', reply: mode === 'min' ? now.toLocaleDateString('fr-FR', { weekday: 'long' }) + '.' : mode === 'long' ? `Nous sommes le ${d}.` : `Nous sommes le ${court}.` };
+  }
+
+  // Notes (gardées dans ce navigateur)
+  const notes = () => { try { return JSON.parse(localStorage.getItem('jarvis_notes') || '[]'); } catch (e) { return []; } };
+  const saveNotes = a => { try { localStorage.setItem('jarvis_notes', JSON.stringify(a)); return true; } catch (e) { return false; } };
+  if (/^(efface|supprime|vide) (mes notes|ma liste|toutes mes notes)/.test(q))
+    return { intent: 'notes', reply: saveNotes([]) ? 'Notes effacées.' : 'Je ne peux pas accéder à la mémoire du navigateur.' };
+  if (/^(?:prends note|note|retiens|n oublie pas|ajoute a ma liste|ajoute a mes notes)\b/.test(q)) {
+    const body = state.raw.replace(/^\s*(?:(?:hey|hé|he|eh|ok|dis|salut)\s+)?(?:jarvis|jarvi)[\s,]*/i, '')
+      .replace(/^(?:prends note|note|retiens|n[’']oublie pas|ajoute (?:à|a) (?:ma liste|mes notes))(?:\s+(?:que|de|d[’']))?\s*:?\s*/i, '').trim();
+    if (!body) return { intent: 'notes', reply: 'Que dois-je noter ?' };
+    const a = notes(); a.push(body);
+    return { intent: 'notes', reply: saveNotes(a) ? 'C’est noté.' : 'Je ne peux pas enregistrer ici.' };
+  }
+  if (/(mes notes|ma liste|qu est ce que j ai note)/.test(q)) {
+    const a = notes();
+    if (!a.length) return { intent: 'notes', reply: 'Tu n’as aucune note.' };
+    const lim = mode === 'long' ? a.length : mode === 'min' ? 1 : 3;
+    const shown = a.slice(-lim).join('. ');
+    return { intent: 'notes', reply: mode === 'min' ? shown + '.' : `Tu as ${a.length} note${a.length > 1 ? 's' : ''}. ${shown}.` };
+  }
+
+  // Minuteurs en cours
+  if (/(combien de temps (?:reste|il reste)|temps restant|il reste combien)/.test(q)) {
+    const left = state.timerEnds.map(x => x.end - Date.now()).filter(x => x > 0).sort((a, b) => a - b);
+    return { intent: 'minuteur', reply: left.length ? `Il reste ${sayDuration(Math.ceil(left[0] / 1000) * 1000)}.` : 'Aucun minuteur en cours.' };
+  }
+  if (/(annule|arrete|supprime|stoppe) (?:le |les |mon |mes |tous les )?(?:minuteur|minuteurs|chrono)/.test(q)) {
+    const n = state.timerEnds.length;
+    state.timers.forEach(clearTimeout); state.timers = []; state.timerEnds = [];
+    return { intent: 'minuteur', reply: n ? 'Minuteur annulé.' : 'Aucun minuteur en cours.' };
+  }
+
+  // Conversions d’unités
+  if (/\d/.test(q)) {
+    const nm = q.match(/(-?\d+(?:[.,]\d+)?)/); const val = nm ? num(nm[1]) : NaN;
+    if (/celsius/.test(q) && /fahrenheit/.test(q)) {
+      const cf = q.indexOf('celsius') < q.indexOf('fahrenheit');
+      const v = cf ? val * 9 / 5 + 32 : (val - 32) * 5 / 9;
+      return { intent: 'conversion', reply: mode === 'min' ? `${fr(v, 1)} degrés.` : `${fr(val, 1)} degrés ${cf ? 'Celsius' : 'Fahrenheit'} font ${fr(v, 1)} degrés ${cf ? 'Fahrenheit' : 'Celsius'}.` };
+    }
+    const UNITS = [
+      [/\b(?:km|kilometres?)\b/, 'kilomètres', /\b(?:miles?|milles?)\b/, 'miles', 0.621371],
+      [/\bmetres?\b/, 'mètres', /\bpieds?\b/, 'pieds', 3.28084],
+      [/\b(?:kg|kilos?|kilogrammes?)\b/, 'kilos', /\b(?:lb|lbs|livres?|pounds?)\b/, 'livres', 2.20462],
+      [/\blitres?\b/, 'litres', /\bgallons?\b/, 'gallons', 0.264172],
+      [/\b(?:cm|centimetres?)\b/, 'centimètres', /\b(?:pouces?|inch(?:es)?)\b/, 'pouces', 0.393701],
+    ];
+    for (const [ra, na, rb, nb, k] of UNITS) {
+      const ia = q.search(ra), ib = q.search(rb);
+      if (ia < 0 || ib < 0 || Number.isNaN(val)) continue;
+      const fwd = ia < ib, v = fwd ? val * k : val / k;
+      const from = fwd ? na : nb, to = fwd ? nb : na;
+      return { intent: 'conversion', reply: mode === 'min' ? `${fr(v)} ${to}.` : `${fr(val)} ${from} font ${fr(v)} ${to}.` };
+    }
+  }
+  if ((m = q.match(/(?:nombre|chiffre) (?:au hasard|aleatoire)(?: entre (\d+) et (\d+))?/))) {
+    let lo = m[1] ? parseInt(m[1], 10) : 1, hi = m[2] ? parseInt(m[2], 10) : 100;
+    if (lo > hi) [lo, hi] = [hi, lo];
+    return { intent: 'hasard', reply: `${lo + Math.floor(Math.random() * (hi - lo + 1))}.` };
+  }
+
+  // Minuteur
+  if (/(minuteur|chrono|compte a rebours|previens moi dans|rappelle moi dans|reveille moi dans)/.test(q)) {
+    const ms = parseDuration(q);
+    if (!ms) return { intent: 'minuteur', reply: 'Pour combien de temps ?' };
+    const label = sayDuration(ms);
+    const tid = setTimeout(() => {
+      state.timerEnds = state.timerEnds.filter(x => x.t !== tid);
+      speak(`Le minuteur de ${label} est terminé.`);
+    }, ms);
+    state.timers.push(tid); state.timerEnds.push({ t: tid, end: Date.now() + ms });
+    return { intent: 'minuteur', reply: `Minuteur lancé pour ${label}.` };
+  }
+
+  // Météo
+  if (/(meteo|quel temps|temperature|il fait (chaud|froid|beau)|va t il pleuvoir|il pleut|pluie)/.test(q))
+    return { intent: 'météo', reply: await meteo(cityOf(q), dayOf(q), mode, signal) };
+
+  // Devises
+  const cur = findCurrencies(q);
+  if (cur.length >= 2 || (cur.length === 1 && /(convertis|convertir|change|taux|cours|vaut|valent|combien)/.test(q) && /\d/.test(q))) {
+    const am = q.match(/(\d+(?:[.,]\d+)?)/);
+    const amount = am ? num(am[1]) : 1;
+    const from = cur[0], to = cur[1] || (from === 'EUR' ? 'USD' : 'EUR');
+    return { intent: 'devise', reply: await convert(amount, from, to, mode, signal) };
+  }
+
+  // Calcul
+  const v = calc(q);
+  if (v !== null) {
+    if (!Number.isFinite(v)) return { intent: 'calcul', reply: 'Ce calcul n’a pas de résultat défini.' };
+    return { intent: 'calcul', reply: mode === 'min' ? `${fr(v, 6)}.` : `Le résultat est ${fr(v, 6)}.` };
+  }
+
+  // Divertissement
+  if (/blague|fais moi rire|histoire drole/.test(q)) return { intent: 'blague', reply: pick(JOKES) };
+  if (/pile ou face/.test(q)) return { intent: 'pile ou face', reply: pick(['Pile.', 'Face.']) };
+  if ((m = q.match(/\b(?:lance|jette)\s+(?:un\s+)?de(?:\s+(?:a\s+)?(\d+))?/))) {
+    const faces = m[1] ? parseInt(m[1], 10) : 6;
+    return { intent: 'dé', reply: `${1 + Math.floor(Math.random() * Math.max(faces, 2))}.` };
+  }
+
+  // Ouvrir un site
+  if ((m = q.match(/^(?:ouvre|ouvrir|va sur|lance)\s+(?:le site\s+)?(.+)$/))) {
+    const key = m[1].replace(/\s+/g, '');
+    const url = SITES[key] || (/^[a-z0-9-]+\.[a-z]{2,}$/.test(key) ? 'https://' + key : null);
+    if (!url) return { intent: 'ouvrir', reply: `Je ne connais pas le site ${m[1]}.` };
+    const w = window.open(url, '_blank');
+    return { intent: 'ouvrir', reply: w ? `J’ouvre ${m[1]}.` : 'Le navigateur a bloqué l’ouverture. Autorise les fenêtres pop-up pour cette page.' };
+  }
+
+  // Recherche (par défaut)
+  const topic = topicOf(q);
+  if (!topic) return { intent: 'incompris', reply: 'Je n’ai pas compris. Peux-tu répéter ?' };
+  state.ctx = { last: 'recherche' };
+  return { intent: 'recherche « ' + topic + ' »', reply: await recherche(topic, mode, signal) };
+}
+
+/* ---------- Traitement d’une phrase ---------- */
+async function handle(raw) {
+  el.heard.textContent = raw;
+  state.raw = raw;
+  let q = norm(raw).replace(/^(?:(?:hey|he|eh|ok|dis|salut) )?(?:jarvis|jarvi|harvis|jarvice)\s*,?\s*/, '');
+  let mode = 'short';
+  if (/\bdevelopp\w*|\bdetaill\w*|\ben detail/.test(q)) mode = 'long';
+  else if (/\babreg\w*|\ben bref\b|\ben un mot\b/.test(q)) mode = 'min';
+  q = q.replace(/\b(?:developp\w*|detaill\w*|en detail|abreg\w*|en bref|en un mot)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!q) { await speak(pick(['Oui ?', 'Je suis là.', 'Je t’écoute.'])); return; }
+
+  const eth = ethics(q);
+  if (eth.block) {
+    showReasoning([eth.law, 'Loi 2 : un ordre ne peut pas passer avant la Loi 1.', 'Loi 3 : sans objet.']);
+    await speak(eth.reply);
+    return;
+  }
+
+  setMode('thinking', 'Je réfléchis');
+  const ctrl = new AbortController(); state.abort = ctrl;
+  const timeout = setTimeout(() => ctrl.abort('timeout'), CONFIG.delaiReseauMs);
+  let out;
+  try {
+    out = await route(q, mode, ctrl.signal);
+  } catch (err) {
+    clearTimeout(timeout);
+    if (ctrl.signal.reason === 'lego' || state.abort !== ctrl) return;
+    state.abort = null;
+    await speak(ctrl.signal.reason === 'timeout' ? 'Internet met trop de temps à répondre.' : 'Je n’ai pas pu joindre internet pour ça.');
+    return;
+  }
+  clearTimeout(timeout);
+  if (state.abort !== ctrl) return; // arrêté pendant la recherche
+  state.abort = null;
+
+  showReasoning([
+    eth.law,
+    `Loi 2 : ordre « ${out.intent} » compatible avec la Loi 1 → j’exécute.`,
+    out.then === 'stop' ? 'Loi 3 : on m’ordonne de m’éteindre ; la Loi 2 prime sur ma survie → j’obéis.' : 'Loi 3 : rien ne menace mon fonctionnement.',
+  ]);
+  await speak(out.reply);
+  if (out.extra && state.on) await speak(out.extra.text, out.extra.lang);
+  if (out.then === 'stop') stopAll('À bientôt. Touche le cercle pour me relancer.', true);
+  if (out.then === 'standby' && state.on) { state.standby = true; beep(880, 440); setMode('standby', STANDBY_TXT); el.heard.textContent = ''; }
+}
+
+/* ---------- Démarrage ---------- */
+/* Petit bip de confirmation (réveil / veille) */
+function beep(f1, f2) {
+  try {
+    const c = state.audioCtx || (state.audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+    const o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f1, t); o.frequency.linearRampToValueAtTime(f2, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + 0.2);
+  } catch (e) {}
+}
+
+/* Le cercle réagit à ta voix pendant l’écoute */
+function startMeter(stream) {
+  try {
+    const ctx = state.audioCtx || (state.audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const an = ctx.createAnalyser(); an.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize); let lvl = 0;
+    const tick = () => {
+      if (state.stream !== stream) { document.documentElement.style.setProperty('--lvl', 0); return; }
+      an.getByteTimeDomainData(buf);
+      let s = 0; for (const b of buf) { const x = (b - 128) / 128; s += x * x; }
+      lvl = lvl * 0.8 + Math.min(1, Math.sqrt(s / buf.length) * 6) * 0.2;
+      document.documentElement.style.setProperty('--lvl', lvl.toFixed(3));
+      requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {}
+}
+
+let starting = false;
+async function start() {
+  if (starting) return;
+  if (!('speechSynthesis' in window)) { setMode('paused', 'Ce navigateur ne sait pas parler. Utilise Microsoft Edge.'); return; }
+  starting = true;
+  pickVoice();
+  // Un seul accès micro gardé ouvert pendant la session : évite que le navigateur le redemande sans cesse.
+  let fresh = false;
+  try {
+    if (!state.stream || !state.stream.active) {
+      setMode('thinking', 'Autorise le micro dans la fenêtre d’Edge, en haut à gauche.');
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) { state.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); fresh = true; }
+    }
+  } catch (e) {
+    starting = false;
+    setMode('paused', 'Micro refusé. Autorise-le pour cette page dans Edge, puis touche le cercle.');
+    return;
+  }
+  starting = false;
+  if (fresh && state.stream) startMeter(state.stream);
+  state.on = true; state.wantListen = true; state.standby = false; state.errCount = 0;
+  if (!startRec()) { state.on = false; return; }
+  setMode('listening', 'Je t’écoute');
+  el.heard.textContent = '';
+  speak(pick(['Jarvis en ligne.', 'Jarvis est prêt.', 'Je suis là.']));
+}
+function toggle() {
+  // Démarrage automatique : si Edge a bloqué la voix faute de geste, le premier clic l'active sans mettre en pause
+  if (state.on && state.needGesture) { unlockVoice(); return; }
+  // Le cercle ne met jamais en pause : il réveille de la veille ou relance après « bidochouf »
+  if (state.on && state.standby) { state.standby = false; beep(520, 880); setMode('listening', 'Je t’écoute'); return; }
+  if (!state.on) start();
+}
+function unlockVoice() {
+  state.needGesture = false;
+  try { if (state.audioCtx && state.audioCtx.state === 'suspended') state.audioCtx.resume(); } catch (e) {}
+  speak(pick(['Jarvis en ligne.', 'Je suis là.']));
+}
+document.addEventListener('pointerdown', e => {
+  if (state.on && state.needGesture && !e.target.closest('#orb')) unlockVoice();
+});
+
+$('#orb').addEventListener('click', toggle);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && document.activeElement === document.body) { e.preventDefault(); toggle(); }
+});
+
+/* Démarrage automatique à l'ouverture : micro actif sans rien toucher */
+window.addEventListener('load', () => {
+  setMode('thinking', 'Autorise le micro quand Edge le demande…');
+  start();
+});
+
+/* Pour les tests */
+window.Jarvis = { norm, ethics, calc, parseDuration, findCurrencies, shape, topicOf, cityOf, dayOf };
+})();
+</script>
+</body>
+</html>
